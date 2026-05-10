@@ -7,6 +7,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +30,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.pocketgpt.ui.theme.*
@@ -138,7 +142,8 @@ enum class ThemeMode { Light, Dark, Neon }
 fun PocketGptTheme(themeMode: ThemeMode, content: @Composable () -> Unit) {
     val colors = when (themeMode) {
         ThemeMode.Light -> lightColorScheme(primary = DarkGreen, secondary = AccentTeal, background = Background, surface = CardBackground, onBackground = TextPrimary, onSurface = TextPrimary)
-        ThemeMode.Dark -> darkColorScheme(primary = LightGreen, secondary = AccentTeal, background = Color(0xFF121212), surface = Color(0xFF1E1E1E), onBackground = Color.White, onSurface = Color.White)
+        // Premium Slate Dark Mode with Neon Cyan accents
+        ThemeMode.Dark -> darkColorScheme(primary = Color(0xFF00E5FF), secondary = Color(0xFFB000FF), background = Color(0xFF0F1115), surface = Color(0xFF161B22), onBackground = Color(0xFFE2E8F0), onSurface = Color(0xFFCBD5E1))
         ThemeMode.Neon -> darkColorScheme(primary = Color(0xFF00FFFF), secondary = Color(0xFF00BFFF), background = Color.Black, surface = Color(0xFF0A0A0A), onBackground = Color(0xFF00FFFF), onSurface = Color(0xFF00FFFF))
     }
     MaterialTheme(colorScheme = colors, content = content)
@@ -208,12 +213,17 @@ fun Header(screen: Screen) {
 
 @Composable
 fun BottomNavigationBar(currentScreen: Screen, onScreenSelected: (Screen) -> Unit) {
-    Surface(modifier = Modifier.navigationBarsPadding().fillMaxWidth().height(60.dp), color = MaterialTheme.colorScheme.background, shadowElevation = 8.dp) {
+    Surface(modifier = Modifier.navigationBarsPadding().fillMaxWidth().height(60.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), shadowElevation = 12.dp) {
         Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
+            val view = LocalView.current
             Screen.entries.forEach { screen ->
                 val isSelected = currentScreen == screen
-                IconButton(onClick = { onScreenSelected(screen) }, modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)) {
-                    Icon(screen.icon, contentDescription = screen.title, tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
+                val iconSize by animateDpAsState(targetValue = if (isSelected) 26.dp else 22.dp, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                IconButton(onClick = { 
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onScreenSelected(screen) 
+                }, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent)) {
+                    Icon(screen.icon, contentDescription = screen.title, tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), modifier = Modifier.size(iconSize))
                 }
             }
         }
@@ -286,30 +296,42 @@ fun ChatScreen(
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp), contentPadding = PaddingValues(bottom = 140.dp)) {
             item {
                 if (activeWork != null) {
-                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Downloading AI Core...", style = MaterialTheme.typography.titleMedium)
-                            LinearProgressIndicator(progress = { if (progress >= 0) progress / 100f else 0f }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).animateContentSize(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Downloading AI Core...", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onBackground)
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            val animatedProgress by animateFloatAsState(targetValue = if (progress >= 0) progress / 100f else 0f, animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy), label = "progress")
+                            LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.onBackground.copy(alpha=0.1f))
+                            Spacer(modifier = Modifier.height(8.dp))
                             val progressText = if (progress >= 0) "$progress%" else "Starting..."
-                            Text("Status: $status | $progressText", style = MaterialTheme.typography.labelSmall)
+                            Text("Status: $status | $progressText", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onBackground.copy(alpha=0.6f))
                         }
                     }
                 } else if (failedWork != null || modelErrorMessage != null) {
                     val error = modelErrorMessage ?: failedWork?.outputData?.getString("error") ?: "Unknown Error"
-                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = CardDefaults.cardColors(containerColor = Color(0x33FF0000))) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Model Setup Failed", color = Color.Red, fontWeight = FontWeight.Bold)
-                            Text(error, color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).animateContentSize(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF3B0000))) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Error, contentDescription = null, tint = Color(0xFFFF5555), modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Model Setup Failed", color = Color(0xFFFF5555), fontWeight = FontWeight.Bold)
+                            }
                             Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedButton(onClick = { deleteModel(context); isModelDownloaded = false; workManager.cancelAllWork() }) { Text("Reset & Retry", color = Color.Red) }
+                            Text(error, color = Color(0xFFFFB3B3), style = MaterialTheme.typography.bodySmall)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedButton(onClick = { deleteModel(context); isModelDownloaded = false; workManager.cancelAllWork() }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5555))) { Text("Reset & Retry") }
                         }
                     }
                 } else if (isModelInitializing) {
-                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).animateContentSize(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
                             Spacer(modifier = Modifier.width(16.dp))
-                            Text("Loading AI into memory...")
+                            Text("Loading AI into memory...", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -383,19 +405,28 @@ fun ChatScreen(
 @Composable
 fun ChatMessageCard(message: ChatMessage) {
     val alignment = if (message.isUser) Alignment.CenterEnd else Alignment.CenterStart
-    val bgColor = if (message.isUser) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.surface
+    val bubbleShape = if (message.isUser) RoundedCornerShape(24.dp, 24.dp, 4.dp, 24.dp) else RoundedCornerShape(24.dp, 24.dp, 24.dp, 4.dp)
+    
+    // Premium Gradient for user messages
+    val userGradient = Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFF007AFF)))
+    val aiBackground = MaterialTheme.colorScheme.surface
     val textColor = if (message.isUser) Color.White else MaterialTheme.colorScheme.onSurface
-    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = alignment) {
-        Box(modifier = Modifier.fillMaxWidth(0.85f).clip(RoundedCornerShape(20.dp)).background(bgColor).padding(16.dp)) { Text(message.text, color = textColor) }
+    
+    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).animateContentSize(animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)), contentAlignment = alignment) {
+        Box(modifier = Modifier.fillMaxWidth(0.85f).clip(bubbleShape)
+            .then(if (message.isUser) Modifier.background(userGradient) else Modifier.background(aiBackground))
+            .padding(horizontal = 20.dp, vertical = 14.dp)) { 
+            Text(message.text, color = textColor, style = MaterialTheme.typography.bodyLarge.copy(lineHeight = androidx.compose.ui.unit.TextUnit(24f, androidx.compose.ui.unit.TextUnitType.Sp))) 
+        }
     }
 }
 
 @Composable
 fun InsightCard() {
-    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(Brush.linearGradient(listOf(GradientStart, GradientEnd))).padding(24.dp)) {
+    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Brush.linearGradient(listOf(Color(0xFF1E293B), Color(0xFF0F172A)))).padding(24.dp)) {
         Column {
-            Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp), tint = DarkPurple); Spacer(modifier = Modifier.width(8.dp)); Text("PRIVACY FIRST", style = MaterialTheme.typography.labelSmall, color = DarkPurple) }
-            Spacer(modifier = Modifier.height(12.dp)); Text("Model runs 100% on-device.", color = Color.Black)
+            Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF00E5FF)); Spacer(modifier = Modifier.width(10.dp)); Text("PRIVACY FIRST", style = MaterialTheme.typography.labelMedium, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold) }
+            Spacer(modifier = Modifier.height(12.dp)); Text("Model runs 100% locally on your device.", color = Color(0xFFE2E8F0), style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -403,14 +434,22 @@ fun InsightCard() {
 @Composable
 fun ChatInput(modifier: Modifier = Modifier, isInitializing: Boolean = false, isGenerating: Boolean = false, onAttachClick: () -> Unit = {}, onSendMessage: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
-    Box(modifier = modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.surface).padding(horizontal = 8.dp), contentAlignment = Alignment.CenterStart) {
+    val view = LocalView.current
+    
+    Box(modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(MaterialTheme.colorScheme.surface).padding(horizontal = 12.dp, vertical = 8.dp).animateContentSize(), contentAlignment = Alignment.CenterStart) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { onAttachClick() }) { Icon(Icons.Default.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.onBackground.copy(0.6f)) }
-            Box(modifier = Modifier.weight(1f)) {
-                if (text.isEmpty()) Text(text = if (isGenerating) "AI is thinking..." else if (isInitializing) "Activating..." else "Type a message...", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f))
-                BasicTextField(value = text, onValueChange = { text = it }, enabled = !isGenerating, textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onBackground), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), modifier = Modifier.fillMaxWidth())
+            IconButton(onClick = { onAttachClick() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.onBackground.copy(0.5f)) }
+            Box(modifier = Modifier.weight(1f).padding(horizontal = 4.dp)) {
+                if (text.isEmpty()) Text(text = if (isGenerating) "AI is thinking..." else if (isInitializing) "Activating..." else "Message Pocket GPT...", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f), style = MaterialTheme.typography.bodyLarge)
+                BasicTextField(value = text, onValueChange = { text = it }, enabled = !isGenerating, textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
             }
-            IconButton(onClick = { if (text.isNotBlank()) { onSendMessage(text); text = "" } }, enabled = text.isNotBlank() && !isGenerating, modifier = Modifier.size(44.dp).clip(CircleShape).background(if (text.isNotBlank() && !isGenerating) MaterialTheme.colorScheme.primary else Color.Gray)) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White) }
+            IconButton(onClick = { 
+                if (text.isNotBlank() && !isGenerating) { 
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_PRESS)
+                    onSendMessage(text)
+                    text = "" 
+                } 
+            }, enabled = text.isNotBlank() && !isGenerating, modifier = Modifier.size(48.dp).clip(CircleShape).background(if (text.isNotBlank() && !isGenerating) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f))) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = if (text.isNotBlank() && !isGenerating) Color.Black else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)) }
         }
     }
 }
