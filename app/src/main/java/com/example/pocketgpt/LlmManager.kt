@@ -18,8 +18,8 @@ class LlmManager(private val context: Context) {
     companion object {
         private val MODEL_EXTENSIONS = listOf(".task", ".bin", ".tflite")
         const val MODEL_NAME = "SmolVLM_256M" // We will keep the internal name the same so we don't break logic
-        // Using the official Google Gemma 2B model so the auto-downloader actually works!
-        const val DEFAULT_DOWNLOAD_URL = "https://storage.googleapis.com/jmstore/Kaggle/Models/gemma/gemma-2b-it-cpu-int4.task"
+        // Direct, ungated HuggingFace URL that does NOT require login!
+        const val DEFAULT_DOWNLOAD_URL = "https://huggingface.co/a8nova/gemma-2b-it-cpu-int4/resolve/main/gemma-2b-it-cpu-int4.bin"
     }
 
     /**
