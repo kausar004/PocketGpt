@@ -9,7 +9,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class Screen(val title: String, val icon: ImageVector) {
     Chat("Chat", Icons.AutoMirrored.Filled.Chat),
-    Models("Models", Icons.Default.Storage),
     Library("Library", Icons.Default.CollectionsBookmark),
     Settings("Settings", Icons.Default.Settings)
 }

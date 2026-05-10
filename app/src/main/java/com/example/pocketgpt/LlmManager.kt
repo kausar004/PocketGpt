@@ -17,7 +17,9 @@ class LlmManager(private val context: Context) {
 
     companion object {
         private val MODEL_EXTENSIONS = listOf(".task", ".bin", ".tflite")
-        const val MODEL_NAME = "SmolVLM_256M"
+        const val MODEL_NAME = "SmolVLM_256M" // We will keep the internal name the same so we don't break logic
+        // Using the official Google Gemma 2B model so the auto-downloader actually works!
+        const val DEFAULT_DOWNLOAD_URL = "https://storage.googleapis.com/jmstore/Kaggle/Models/gemma/gemma-2b-it-cpu-int4.task"
     }
 
     /**
@@ -75,7 +77,7 @@ class LlmManager(private val context: Context) {
                 header[2] == 'D'.code.toByte() && header[3] == 'F'.code.toByte()) {
                 return "Wrong model format: This is a Keras/HDF5 model file. " +
                         "MediaPipe requires a pre-converted model (.task). " +
-                        "The file has been deleted. Please download the correct model (e.g. smolvlm-256m.task)."
+                        "The file has been deleted. Please upload the correct model to your URL."
             }
 
             // Check for JSON/text start — config.json or tokenizer.json accidentally saved
@@ -192,8 +194,7 @@ class LlmManager(private val context: Context) {
             errorMsg.contains("RET_CHECK") || errorMsg.contains("INTERNAL") ->
                 "Failed to initialize engine. " +
                 "This usually means the model file is not in the correct MediaPipe format. " +
-                "The downloaded file may be a standard model instead of a MediaPipe-compatible .task bundle. " +
-                "Please tap 'Delete Model & Reset' and download the correct model (e.g. smolvlm-256m.task)."
+                "The downloaded file may be a standard model instead of a MediaPipe-compatible .task bundle."
             errorMsg.contains("OOM") || errorMsg.contains("memory") || errorMsg.contains("alloc") ->
                 "Not enough memory to load the model. Close other apps and try again."
             else ->

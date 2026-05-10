@@ -172,16 +172,7 @@ fun MainScreen(
                 Header(currentScreen)
                 Box(modifier = Modifier.weight(1f)) {
                     when (currentScreen) {
-                        Screen.Chat -> ChatScreen(chatHistory, isGenerating, llmManager, libraryHistory)
-                        Screen.Models -> ModelsScreen(
-                            llmManager = llmManager,
-                            onInitModel = onInitModel,
-                            onModelReady = onModelReady,
-                            isModelReady = isModelReady,
-                            isModelInitializing = isModelInitializing,
-                            externalErrorMessage = modelErrorMessage,
-                            onClearError = onClearError
-                        )
+                        Screen.Chat -> ChatScreen(chatHistory, isGenerating, llmManager, libraryHistory, isModelReady, isModelInitializing, onInitModel, modelErrorMessage)
                         Screen.Library -> LibraryScreen(libraryHistory)
                         Screen.Settings -> SettingsScreen(themeMode, onThemeChange)
                     }
@@ -194,204 +185,11 @@ fun MainScreen(
     }
 }
 
-@Composable
-fun ModelsScreen(
-    llmManager: LlmManager,
-    onInitModel: () -> Unit,
-    onModelReady: () -> Unit,
-    isModelReady: Boolean,
-    isModelInitializing: Boolean,
-    externalErrorMessage: String? = null,
-    onClearError: () -> Unit = {}
-) {
-    val context = LocalContext.current
-    var isModelDownloaded by remember { mutableStateOf(llmManager.isModelDownloaded()) }
-    val workManager = WorkManager.getInstance(context)
-    val workInfos by workManager.getWorkInfosForUniqueWorkLiveData("model_download").observeAsState(emptyList())
-    val activeWork = workInfos.firstOrNull { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
-    val succeededWork = workInfos.firstOrNull { it.state == WorkInfo.State.SUCCEEDED }
-    val failedWork = workInfos.firstOrNull { it.state == WorkInfo.State.FAILED }
-    val progress = activeWork?.progress?.getInt("progress", -1) ?: -1
-    val status = activeWork?.progress?.getString("status") ?: "downloading"
-
-    // Auto-load model when download+extraction completes successfully
-    LaunchedEffect(succeededWork?.id) {
-        if (succeededWork != null && !isModelReady && !isModelInitializing) {
-            Log.d("ModelsScreen", "Worker SUCCEEDED — checking for model file...")
-
-            // Validate format of newly downloaded model
-            val formatError = llmManager.validateAndDeleteIfWrong()
-            if (formatError != null) {
-                Log.e("ModelsScreen", "Downloaded model has wrong format: $formatError")
-                isModelDownloaded = false
-                return@LaunchedEffect
-            }
-
-            isModelDownloaded = llmManager.isModelDownloaded()
-            if (isModelDownloaded) {
-                Log.d("ModelsScreen", "Model found! Auto-loading...")
-                // Small delay to let the UI update
-                delay(500)
-                onInitModel()
-            }
-        }
-    }
-
-    // Show error from failed work
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    // Merge external error messages (from auto-load)
-    LaunchedEffect(externalErrorMessage) {
-        if (externalErrorMessage != null) {
-            errorMessage = externalErrorMessage
-            isModelDownloaded = llmManager.isModelDownloaded()
-        }
-    }
-
-    LaunchedEffect(failedWork?.id) {
-        if (failedWork != null) {
-            errorMessage = failedWork.outputData.getString("error")
-            isModelDownloaded = llmManager.isModelDownloaded()
-        }
-    }
-
-    // Re-check download state when screen appears
-    LaunchedEffect(Unit) {
-        isModelDownloaded = llmManager.isModelDownloaded()
-    }
-
-    Column(modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
-            Column(modifier = Modifier.padding(24.dp)) {
-                Text("AI Core Setup", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("To use the AI, you need a MediaPipe-compatible SmolVLM 256M model (.task format).", style = MaterialTheme.typography.bodyMedium)
-                Spacer(modifier = Modifier.height(24.dp))
-                
-                if (activeWork != null) {
-                    // Show download/extraction progress
-                    val statusText = if (status == "extracting") "Extracting Model..." else "Downloading Model..."
-                    Text(statusText, style = MaterialTheme.typography.labelMedium)
-                    LinearProgressIndicator(
-                        progress = { if (progress >= 0) progress / 100f else 0f },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    )
-                    val progressText = when {
-                        status == "extracting" && progress >= 0 -> "Extracting: $progress%"
-                        status == "extracting" -> "Extracting... (this may take a while)"
-                        progress >= 0 -> "Downloaded: $progress%"
-                        else -> "Starting download..."
-                    }
-                    Text(progressText, style = MaterialTheme.typography.labelSmall)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedButton(onClick = { workManager.cancelUniqueWork("model_download") }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Cancel")
-                    }
-                } else if (isModelInitializing) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Loading AI into memory...", modifier = Modifier.align(Alignment.CenterHorizontally), style = MaterialTheme.typography.labelSmall)
-                } else if (isModelReady) {
-                    Button(onClick = {}, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = DarkGreen)) {
-                        Icon(Icons.Default.Check, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("AI IS ACTIVE")
-                    }
-                } else if (isModelDownloaded) {
-                    Button(
-                        onClick = { onInitModel() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("ACTIVATE AI")
-                    }
-                } else {
-                    // No model downloaded — show download UI
-                    var modelUrl by remember {
-                        mutableStateOf("https://huggingface.co/YOUR_USERNAME/smolvlm-256m/resolve/main/smolvlm-256m.task")
-                    }
-
-                    OutlinedTextField(
-                        value = modelUrl,
-                        onValueChange = { modelUrl = it },
-                        label = { Text("Model URL (.task file)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Button(
-                        onClick = {
-                            errorMessage = null
-                            onClearError()
-                            val data = workDataOf("url" to modelUrl.trim())
-                            val constraints = Constraints.Builder()
-                                .setRequiredNetworkType(NetworkType.CONNECTED)
-                                .build()
-                            val request = OneTimeWorkRequestBuilder<ModelWorker>()
-                                .setInputData(data)
-                                .setConstraints(constraints)
-                                .addTag("model_download")
-                                .build()
-                            workManager.enqueueUniqueWork("model_download", ExistingWorkPolicy.REPLACE, request)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = modelUrl.isNotBlank()
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("DOWNLOAD MODEL")
-                    }
-                    
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        "⚠️ You must convert the SmolVLM 256M model to a .task file using LiteRT Torch, and host it! " +
-                        "Enter the direct download URL above. " +
-                        "Base PyTorch/Safetensors models will NOT work.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFCC6600)
-                    )
-                }
-
-                // Show error message if any
-                val displayError = errorMessage
-                if (displayError != null && activeWork == null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0x33FF0000)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            "Error: $displayError",
-                            modifier = Modifier.padding(12.dp),
-                            color = Color.Red,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-
-                // Always show delete button if there's an error or model exists
-                if ((isModelDownloaded || displayError != null) && !isModelInitializing && activeWork == null && !isModelReady) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedButton(onClick = { 
-                        deleteModel(context)
-                        isModelDownloaded = false
-                        errorMessage = null
-                        onClearError()
-                    }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Delete Model & Reset", color = Color.Red)
-                    }
-                }
-            }
-        }
-    }
-}
+// Removed ModelsScreen and deleteModel
 
 fun deleteModel(context: Context) {
     val dir = context.filesDir
-    // Delete all possible model files and temp files
-    listOf("SmolVLM_256M.task", "SmolVLM_256M.bin", "SmolVLM_256M.tflite", "Gemma_4_E2B.task", "temp_archive.tar.gz", "model_extract.tmp").forEach {
+    listOf("SmolVLM_256M.task", "temp_archive.tar.gz", "model_extract.tmp").forEach {
         File(dir, it).delete()
     }
 }
@@ -427,12 +225,55 @@ fun ChatScreen(
     history: MutableList<ChatMessage>, 
     isGenerating: Boolean,
     llmManager: LlmManager,
-    libraryHistory: MutableList<LibraryItem>
+    libraryHistory: MutableList<LibraryItem>,
+    isModelReady: Boolean,
+    isModelInitializing: Boolean,
+    onInitModel: () -> Unit,
+    modelErrorMessage: String?
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    
+    // Auto-download logic
+    val workManager = WorkManager.getInstance(context)
+    val workInfos by workManager.getWorkInfosForUniqueWorkLiveData("model_download").observeAsState(emptyList())
+    val activeWork = workInfos.firstOrNull { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
+    val succeededWork = workInfos.firstOrNull { it.state == WorkInfo.State.SUCCEEDED }
+    val failedWork = workInfos.firstOrNull { it.state == WorkInfo.State.FAILED }
+    val progress = activeWork?.progress?.getInt("progress", -1) ?: -1
+    val status = activeWork?.progress?.getString("status") ?: "downloading"
+    var isModelDownloaded by remember { mutableStateOf(llmManager.isModelDownloaded()) }
+
+    LaunchedEffect(succeededWork?.id) {
+        if (succeededWork != null && !isModelReady && !isModelInitializing) {
+            val formatError = llmManager.validateAndDeleteIfWrong()
+            if (formatError == null) {
+                isModelDownloaded = llmManager.isModelDownloaded()
+                if (isModelDownloaded) {
+                    delay(500)
+                    onInitModel()
+                }
+            } else {
+                isModelDownloaded = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!isModelDownloaded && activeWork == null && !isModelInitializing && failedWork == null) {
+            // Start download automatically
+            val data = workDataOf("url" to LlmManager.DEFAULT_DOWNLOAD_URL)
+            val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            val request = OneTimeWorkRequestBuilder<ModelWorker>()
+                .setInputData(data)
+                .setConstraints(constraints)
+                .addTag("model_download")
+                .build()
+            workManager.enqueueUniqueWork("model_download", ExistingWorkPolicy.KEEP, request)
+        }
+    }
     
     val photoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
@@ -443,8 +284,39 @@ fun ChatScreen(
     
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp), contentPadding = PaddingValues(bottom = 140.dp)) {
+            item {
+                if (activeWork != null) {
+                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), shape = RoundedCornerShape(16.dp)) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Downloading AI Core...", style = MaterialTheme.typography.titleMedium)
+                            LinearProgressIndicator(progress = { if (progress >= 0) progress / 100f else 0f }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                            val progressText = if (progress >= 0) "$progress%" else "Starting..."
+                            Text("Status: $status | $progressText", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                } else if (failedWork != null || modelErrorMessage != null) {
+                    val error = modelErrorMessage ?: failedWork?.outputData?.getString("error") ?: "Unknown Error"
+                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = CardDefaults.cardColors(containerColor = Color(0x33FF0000))) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Model Setup Failed", color = Color.Red, fontWeight = FontWeight.Bold)
+                            Text(error, color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(onClick = { deleteModel(context); isModelDownloaded = false; workManager.cancelAllWork() }) { Text("Reset & Retry", color = Color.Red) }
+                        }
+                    }
+                } else if (isModelInitializing) {
+                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("Loading AI into memory...")
+                        }
+                    }
+                }
+            }
+
             if (history.isEmpty()) {
-                item { ChatMessageCard(ChatMessage("Hello! Activate the model to start chatting.", false)); Spacer(modifier = Modifier.height(16.dp)); InsightCard() }
+                item { ChatMessageCard(ChatMessage("Hello! Ask me anything.", false)); Spacer(modifier = Modifier.height(16.dp)); InsightCard() }
             } else {
                 items(history) { msg -> ChatMessageCard(msg); Spacer(modifier = Modifier.height(12.dp)) }
                 if (isGenerating) item { Text("AI is thinking...", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 16.dp)) }
@@ -472,7 +344,7 @@ fun ChatScreen(
                 },
                 onSendMessage = { text ->
                     if (!llmManager.isLoaded()) {
-                        history.add(ChatMessage("AI: Not activated. Go to Models tab.", false))
+                        history.add(ChatMessage("AI: Not ready yet. Please wait for the download and activation to finish.", false))
                         return@ChatInput
                     }
                     history.add(ChatMessage(text + if(selectedImageUri != null) " [Image attached]" else "", true))
